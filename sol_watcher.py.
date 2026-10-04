@@ -197,4 +197,4 @@ if __name__ == "__main__":
             "# One memecoin mint per line. SOL is always checked.\n"
         )
     print("One scan. No orders.")
-    scan() 
+    scan()
