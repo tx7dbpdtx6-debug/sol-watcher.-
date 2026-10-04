@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+##!/usr/bin/env python3
 """Paper-only Solana watcher. No wallet. No orders.
 
 SOL is checked every cycle. Memecoins are read from watchlist.txt.
@@ -179,13 +179,16 @@ def scan():
             **{f"check_{k}": int(v) for k, v in flags.items()},
         }
         log_alert(row)
+        buy = float(price)
+        tp_price = round(buy * (1 + tp / 100), 6 if not is_sol else 2)
+        sl_price = round(buy * (1 - sl / 100), 6 if not is_sol else 2)
         text = (
-            f"{mark} {level} entry\n"
-            f"checks {passed}/4\n"
-            f"stake ${stake} on ${EQUITY:.0f} paper\n"
-            f"price {price}\n"
-            f"target +{tp}%   stop -{sl}%\n"
-            f"mint {mint}"
+            f"{mark} LONG\n"
+            f"signal {level}  {passed}/4 checks\n"
+            f"buy {buy}\n"
+            f"take profit {tp_price}\n"
+            f"stop loss {sl_price}\n"
+            f"paper stake ${stake} of ${EQUITY:.0f}"
         )
         print(f"    ALERT {level} stake ${stake}  target +{tp}%  stop -{sl}%")
         send_telegram(text)
