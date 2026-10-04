@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import csv, json, os, time, urllib.request
+import json, os, time, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,7 +8,7 @@ DEX = "https://api.dexscreener.com/tokens/v1/solana/"
 MIN_LIQ, MIN_MCAP, MIN_AGE_DAYS = 50_000, 2_000_000, 3
 STAKE_SMALL, STAKE_NORMAL, EQUITY = 0.01, 0.02, 100.0
 ROOT = Path(__file__).resolve().parent
-WATCHLIST, ALERTS = ROOT / "watchlist.txt", ROOT / "alerts.csv"
+WATCHLIST = ROOT / "watchlist.txt"
 
 def get_json(url):
     req = urllib.request.Request(url, headers={"User-Agent": "kairos-paper-watcher"})
@@ -89,18 +89,29 @@ def scan_gold():
         print("  XAUUSD skip outside London/New York")
         return
     try:
-        data = get_json("https://query1.finance.yahoo.com/v8/finance/chart/GC=F?interval=15m&range=5d")
-        q = data["chart"]["result"][0]["indicators"]["quote"][0]
-        closes = [c for c in q["close"] if c is not None]
-        highs = [h for h in q["high"] if h is not None]
-        lows = [l for l in q["low"] if l is not None]
+        data = get_json("https://query1.finance.yahoo.com/v8/finance/chart/XAUUSD=X?interval=15m&range=5d")
+        result = data["chart"]["result"][0]
+        q = result["indicators"]["quote"][0]
+        stamps = result["timestamp"]
+        bars = []
+        for i, ts in enumerate(stamps):
+            c, h, l = q["close"][i], q["high"][i], q["low"][i]
+            if c is None or h is None or l is None:
+                continue
+            bars.append((ts, h, l, c))
     except Exception as exc:
         print(f"  XAUUSD feed error: {exc}")
         return
-    n = min(len(closes), len(highs), len(lows))
-    closes, highs, lows = closes[-n:], highs[-n:], lows[-n:]
-    if n < 60:
+    if len(bars) < 60:
+        print("  XAUUSD not enough candles")
         return
+    age_min = (time.time() - bars[-1][0]) / 60
+    if age_min > 30:
+        print(f"  XAUUSD skip, last candle is {age_min:.0f} min old. Market closed or feed stale.")
+        return
+    highs = [b[1] for b in bars]
+    lows = [b[2] for b in bars]
+    closes = [b[3] for b in bars]
     avg20, avg50 = ema(closes, 20), ema(closes, 50)
     a, strength = atr(highs, lows, closes), rsi(closes)
     if not a or not avg20[-1] or not avg20[-2] or not avg50[-1] or strength is None:
@@ -119,12 +130,12 @@ def scan_gold():
     tp_price = round(buy + 2 * risk, 2) if side == "LONG" else round(buy - 2 * risk, 2)
     text = (
         f"XAUUSD {side}\n"
-        f"buy {round(buy, 2)}\n"
+        f"entry {round(buy, 2)}\n"
         f"take profit {tp_price}\n"
         f"stop loss {sl_price}\n"
         f"paper risk 0.5%\n"
-        f"agreed: 20-EMA, 50-EMA, RSI {strength:.0f}, not chasing the last high/low\n"
-        f"Confirm no CPI, jobs, FOMC, or Powell in the next 45 minutes. If one is due, do not enter."
+        f"Your chart must be within 2 dollars of {round(buy, 2)}. If it is not, skip.\n"
+        f"Confirm no CPI, jobs, FOMC, or Powell in the next 45 minutes."
     )
     print(text)
     send_telegram(text)
@@ -158,7 +169,7 @@ def scan():
         text = (
             f"{mark} LONG\n"
             f"signal {'normal' if passed == 4 else 'small'}  {passed}/4 checks\n"
-            f"buy {buy}\n"
+            f"entry {buy}\n"
             f"take profit {round(buy * (1 + tp / 100), digits)}\n"
             f"stop loss {round(buy * (1 - sl / 100), digits)}\n"
             f"paper stake ${stake} of ${EQUITY:.0f}"
